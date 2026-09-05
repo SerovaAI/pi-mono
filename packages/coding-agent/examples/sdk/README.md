@@ -115,6 +115,24 @@ await session.prompt("Hello");
 | `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes, and context files |
 | `sessionManager` | `SessionManager.create(cwd)` | Persistence |
 | `settingsManager` | `SettingsManager.create(cwd, agentDir)` | Settings overrides |
+| `convertToLlm` | Standard message conversion | Sync or async conversion after extension context hooks; image blocking still applies afterward |
+| `wrapStreamFn` | No wrapper | Wrap the SDK stream function while retaining its provider settings and header hooks |
+| `shouldStopAfterTurn` | No host stop condition | Stop after a completed turn, including tool execution, to hand control back to the host |
+
+Hosts can customize the provider boundary without constructing `Agent` and `AgentSession` themselves:
+
+```typescript
+const { session } = await createAgentSession({
+  modelRuntime,
+  wrapStreamFn: (next) => (model, context, options) =>
+    next(model, context, {
+      ...options,
+      headers: { ...options?.headers, "x-host": "my-app" },
+    }),
+});
+```
+
+Delegate to `next` and preserve request options (including the abort signal) to keep SDK authentication, provider defaults, attribution, and header extensions. A custom converter replaces standard conversion; call the exported `convertToLlm` inside it when that behavior is still needed. These options do not change session-level retry or compaction policy.
 
 ## Events
 

@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
-import { createAgentSession } from "../src/core/sdk.ts";
+import { type CreateAgentSessionOptions, createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { type Settings, SettingsManager } from "../src/core/settings-manager.ts";
 
@@ -79,6 +79,7 @@ describe("createAgentSession stream options", () => {
 		settings: Partial<Settings>,
 		requestOptions: SimpleStreamOptions = {},
 		extensionSource?: string,
+		wrapStreamFn?: CreateAgentSessionOptions["wrapStreamFn"],
 	): Promise<SimpleStreamOptions | undefined> {
 		const model = createModel(api);
 		const settingsManager = SettingsManager.inMemory(settings);
@@ -111,6 +112,7 @@ describe("createAgentSession stream options", () => {
 			modelRuntime,
 			settingsManager,
 			sessionManager,
+			wrapStreamFn,
 		});
 
 		try {
@@ -193,5 +195,32 @@ describe("createAgentSession stream options", () => {
 			"x-hook": "provider:model:explicit",
 		});
 		expect(options).not.toHaveProperty("transformHeaders");
+	});
+
+	it("lets a stream wrapper retain auth, retry settings, header hooks, and cancellation", async () => {
+		const controller = new AbortController();
+		const options = await captureStreamOptions(
+			"openai-completions",
+			{ httpIdleTimeoutMs: 1234, retry: { provider: { maxRetries: 2 } } },
+			{ signal: controller.signal },
+			`export default function (pi) {
+				pi.on("before_provider_headers", (event) => {
+					event.headers["x-hook"] = event.headers["x-wrapper"];
+				});
+			}`,
+			(next) => (model, context, options) =>
+				next(model, context, {
+					...options,
+					headers: { ...options?.headers, "x-wrapper": "wrapped" },
+				}),
+		);
+
+		expect(options).toMatchObject({
+			apiKey: "test-api-key",
+			timeoutMs: 1234,
+			maxRetries: 2,
+			headers: { "x-wrapper": "wrapped", "x-hook": "wrapped", "x-model": "model" },
+		});
+		expect(options?.signal).toBe(controller.signal);
 	});
 });
